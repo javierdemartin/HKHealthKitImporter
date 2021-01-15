@@ -1,76 +1,92 @@
 import HealthKit
 import Foundation
-
-public struct HKHealthImport {
-    public var text = "Hello, World!"
-    
-    public init() {
-        
-    }
-}
-
-import Foundation
-import HealthKit
 import os.log
+
+enum HKImporterError: Error {
+    case saving
+    case nilSample
+}
 
 public class HKHealthImporter: NSObject {
     
+    /// Path for the exported XML file containing the exported data
     var xmlPath: URL?
     
-    var healthStore: HKHealthStore?
+    private var healthStore: HKHealthStore?
     
-    var currentRecord: HKHealthRecord = HKHealthRecord()
+    private var currentRecord: HKHealthRecord = HKHealthRecord()
     
-    let dateFormatter: DateFormatter = {
+    private let dateFormatter: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd HH:mm:ss Z"
         return f
     }()
     
-    var numberFormatter: NumberFormatter?
+    private var numberFormatter: NumberFormatter?
     
-    var allSamples: [HKSample] = []
     
-    var authorizedTypes: [HKSampleType: Bool] = [:]
+    private var allSamples: [HKSample] = []
     
-    var prevSample: String?
-    
-    var cutDate: Date?
+    // Hold the HealthKit types that are allowed to be read/written from/to
+    private var authorizedTypes: [HKSampleType: Bool] = [:]
     
     /// ASDF
     /// - Parameter completion: ASDF
     public convenience init(path: URL?, completion: @escaping() -> Void) {
         
         self.init()
-        healthStore = HKHealthStore.init()
+        healthStore = HKHealthStore()
         
         self.xmlPath = path
         
         #if !targetEnvironment(simulator)
-        fatalError("Running on a real device")
+            fatalError("Running on a real device")
         #endif
         
         self.numberFormatter = NumberFormatter()
         numberFormatter?.locale = Locale.current
         numberFormatter?.numberStyle = .decimal
         
-        healthStore?.requestAuthorization(toShare: HKConstants.allSampleTypes, read: HKConstants.allSampleTypes, completion: { (authorized, error) in
-          
-            if let error = error {
-                fatalError(error.localizedDescription)
-            } else {
-                completion()
-            }
-        })
+        DispatchQueue.main.async {
+            
+            
+            
+            self.healthStore?.getRequestStatusForAuthorization(toShare: HKConstants.allSampleTypes, read: HKConstants.allSampleTypes, completion: { (status, error) in
+                
+                if let error = error {
+                    fatalError(error.localizedDescription)
+                }
+                
+                switch status {
+                
+                case .unknown:
+                    break
+                case .shouldRequest:
+                    self.healthStore!.requestAuthorization(toShare: HKConstants.allSampleTypes, read: HKConstants.allSampleTypes, completion: { (authorized, error) in
+                        
+                        if let error = error {
+                            fatalError(error.localizedDescription)
+                        } else {
+                            completion()
+                        }
+                    })
+                case .unnecessary:
+                    completion()
+                @unknown default:
+                    break
+                }
+            })
+        }
     }
     
     public func parseData() {
         if let path = xmlPath, let parser = XMLParser(contentsOf: path) {
             
-            parser.delegate = self
-            
-            parser.parse()
-            self.saveAll()
+                parser.delegate = self
+                
+                parser.parse()
+                self.saveAll()
+                
             
         } else {
             os_log("File not found")
@@ -83,34 +99,26 @@ public class HKHealthImporter: NSObject {
 
     func saveSamples(samples: [HKSample], withSuccess successBlock: @escaping () -> Void, failure failureBlock: @escaping () -> Void) {
         
+        let size = samples.count
         
-        // TODO: There's an issue when saving a lot of samples using an array.
-        // In my case I have a 2GB XML file and it's better to save the results item by item
+        print(samples.count)
         
-        for sample in samples {
-            
-            self.healthStore!.save(sample, withCompletion: { (success, error) in
-                
+        let z = 1000
+        
+        for i in stride(from: 0, to: samples.count-2000, by: z) {
+            print("From \(i) to \(i+z)")
+            let a = Array(samples[i..<(i+z)])
+            self.healthStore!.save(a, withCompletion: { (succ, error) in
                 if let error = error {
                     print(error.localizedDescription)
-                    dump(sample)
                 }
             })
         }
         
-//        self.healthStore?.save(samples, withCompletion: { (success, error) in
-//
-//            dump(error)
-//            dump(success)
-//
-//
-//
-//            if let error = error {
-//                os_log("Error saving HealthKit samples \(error.localizedDescription)")
-//            }
-//
-//            successBlock()
-//        })
+        
+        // TODO: There's an issue when saving a lot of samples using an array.
+        // In my case I have a 2GB XML file and it's better to save the results item by item
+
     }
 }
 
@@ -119,37 +127,63 @@ public class HKHealthImporter: NSObject {
 extension HKHealthImporter: XMLParserDelegate {
     public func parser(_ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?, qualifiedName qName: String?, attributes attributeDict: [String : String] = [:]) {
         
-        
         if elementName == "Record" {
-            parseRecordFromAttributes(attributeDict)
+            recordFrom(attributeDict)
         } else if elementName == "MetadataEntry" {
-            parseMetaDataFromAttributes(attributeDict)
+            // A key that indicates whether the sample was entered by the user.
+            metadataFrom(attributeDict)
         } else if elementName == "Workout" {
-            parseWorkoutFromAttributes(attributeDict)
+            workoutFrom(attributeDict)
         } else {
             return
         }
     }
     
     public func parser(_ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?, qualifiedName qName: String?) {
+        
         if elementName == "Record" || elementName == "Workout" {
             
-            if self.cutDate == nil || currentRecord.startDate > cutDate! {
-                save(item: currentRecord, withSuccess: {}, failure: {
-                    os_log("fail to process record")
-                })
-            }
-            currentRecord = HKHealthRecord()
+            //            if self.cutDate == nil || currentRecord.startDate > cutDate! {
+            save(item: currentRecord, completion: { result in
+                switch result {
+                
+                case .success():
+                    break
+                case .failure(let error):
+                    dump(error.localizedDescription)
+                }
+                
+                if self.allSamples.count % 1000 == 0 {
+
+                    let a = self.allSamples
+                    self.healthStore!.save(a, withCompletion: { (succ, error) in
+                        if let error = error {
+                            fatalError(error.localizedDescription)
+                        }
+                    })
+
+                    self.allSamples = []
+                }
+                
+                self.currentRecord = HKHealthRecord()
+            })
+            
+            //            }
+            
+//
+        } else {
+            print(elementName)
         }
     }
     
-    fileprivate func parseRecordFromAttributes(_ attributeDict: [String: String]) {
+    fileprivate func recordFrom(_ attributeDict: [String: String]) {
         
         currentRecord.type = attributeDict["type"]!
         currentRecord.sourceName = attributeDict["sourceName"] ??  ""
         currentRecord.sourceVersion = attributeDict["sourceVersion"] ??  ""
         currentRecord.value = Double(attributeDict["value"] ?? "0") ?? 0
         currentRecord.unit = attributeDict["unit"] ?? ""
+        
         if let date = dateFormatter.date(from: attributeDict["startDate"]!) {
             currentRecord.startDate = date
         }
@@ -179,14 +213,19 @@ extension HKHealthImporter: XMLParserDelegate {
 // MARK: - Metadata management
 
 extension HKHealthImporter {
-    fileprivate func parseMetaDataFromAttributes(_ attributeDict: [String: String]) {
+    
+    fileprivate func metadataFrom(_ attributeDict: [String: String]) {
         var key: String?
         var value: Any?
         
+//        dump(attributeDict)
+        
         for (attributeKey, attributeValue) in attributeDict {
+            
             if attributeKey == "key" {
                 key = attributeValue
             }
+            
             if attributeKey == "value" {
                 if let intValue = Int(attributeValue) {
                     value = intValue
@@ -195,6 +234,7 @@ extension HKHealthImporter {
                 }
                 if attributeValue.hasSuffix("%") {
                     let components = attributeValue.split(separator: " ")
+                    
                     value = HKQuantity.init(unit: .percent(), doubleValue: (numberFormatter?.number(from: String(components.first!))!.doubleValue)!)
                 }
             }
@@ -207,7 +247,11 @@ extension HKHealthImporter {
         }
     }
     
-    fileprivate func parseWorkoutFromAttributes(_ attributeDict: [String: String]) {
+    /**
+     Parse workouts contents from a dictionary
+     */
+    fileprivate func workoutFrom(_ attributeDict: [String: String]) {
+        
         currentRecord.type = HKObjectType.workoutType().identifier
         currentRecord.activityType = HKWorkoutActivityType.from(string: attributeDict["workoutActivityType"] ?? "")
         currentRecord.sourceName = attributeDict["sourceName"] ??  ""
@@ -230,9 +274,13 @@ extension HKHealthImporter {
         if let date = dateFormatter.date(from: attributeDict["creationDate"]!) {
             currentRecord.creationDate = date
         }
+        
+        // TODO: Add metadata["HKElevationDescended"]
+        // TODO: Add metadata["HKElevationAscended"]
     }
     
-    func save(item: HKHealthRecord, withSuccess successBlock: @escaping () -> Void, failure failureBlock: @escaping () -> Void) {
+//    func save(item: HKHealthRecord, withSuccess: @escaping () -> Void, failure: @escaping () -> Void) {
+    func save(item: HKHealthRecord, completion: @escaping (Result<Void, HKImporterError>) -> Void) {
         
         var metadata: [String: Any]? = nil
         
@@ -246,42 +294,47 @@ extension HKHealthImporter {
             }
             
             // Thread 7: "HKMetadataKeySyncVersion may not be provided if HKMetadataKeySyncIdentifier is not provided in the metadata"
-            if metadata!["HKMetadataKeySyncVersion"] != nil && metadata?.keys.count == 1 {
-                
-                failureBlock()
-                return
-            }
-
+//            if metadata!["HKMetadataKeySyncVersion"] != nil && metadata?.keys.count == 1 {
+//
+//                failureBlock()
+//                return
+//            }
         }
         
         // "110 count/min" crashes because it's a string and not a HKQuantity
         // Thread 4: "Invalid class __NSCFString for metadata key: HKHeartRateEventThreshold. Expected HKQuantity."
         if item.type == HKCategoryTypeIdentifier.highHeartRateEvent.rawValue {
-            failureBlock()
+            dump(item)
+            completion(.failure(.saving))
             return
         }
         
         // Thread 7: "Invalid class __NSCFString for metadata key: HKHeartRateEventThreshold. Expected HKQuantity."
         if item.type == HKCategoryTypeIdentifier.lowHeartRateEvent.rawValue {
-            failureBlock()
+            dump(item)
+            completion(.failure(.saving))
+            
             return
         }
         
         // Thread 8: "Duration between startDate (2021-01-15 11:18:34 +0000) and endDate (2021-01-15 11:18:34 +0000) is below the minimum allowed duration for this sample type. Minimum duration for type HKQuantityTypeIdentifierEnvironmentalAudioExposure is 0.001000"
         if (item.endDate.timeIntervalSince(item.startDate)) < 0.001000 && (item.type == HKQuantityTypeIdentifier.environmentalAudioExposure.rawValue || item.type == HKQuantityTypeIdentifier.headphoneAudioExposure.rawValue ) {
-            failureBlock()
+            dump(item)
+            completion(.failure(.saving))
             return
         }
         
         // Thread 4: "Value 0 is not compatible with type HKCategoryTypeIdentifierAudioExposureEvent"
         // Thread 9: "Value 0 is not compatible with type HKCategoryTypeIdentifierAudioExposureEvent"
-        if item.type == HKQuantityTypeIdentifier.environmentalAudioExposure.rawValue {
-            failureBlock()
-            return
-        }
+//        if item.type == HKQuantityTypeIdentifier.environmentalAudioExposure.rawValue {
+//            dump(item)
+//            failureBlock()
+//            return
+//        }
         
-        if item.type == HKCategoryTypeIdentifier.audioExposureEvent.rawValue {
-            failureBlock()
+        if item.type == HKCategoryTypeIdentifier.environmentalAudioExposureEvent.rawValue {
+            dump(item)
+            completion(.failure(.saving))
             return
         }
         
@@ -297,19 +350,16 @@ extension HKHealthImporter {
                 quantity: quantity,
                 start: item.startDate,
                 end: item.endDate,
-                metadata: metadata
-            )
+                metadata: metadata)
         } else if let type = HKCategoryType.categoryType(forIdentifier: HKCategoryTypeIdentifier(rawValue: item.type)) {
             
-            
-            
-            hkSample = HKCategorySample.init(
+            hkSample = HKCategorySample(
                 type: type,
                 value: Int(item.value),
                 start: item.startDate,
                 end: item.endDate,
-                metadata: item.metadata
-            )
+                metadata: item.metadata)
+            
         } else if item.type == HKObjectType.workoutType().identifier {
             // Thread 4: "Invalid class NSTaggedPointerString for metadata key: HKElevationDescended. Expected HKQuantity."
             if let lapLength = item.metadata?["HKLapLength"] as? String {
@@ -339,8 +389,7 @@ extension HKHealthImporter {
                 item.metadata!["HKElevationAscended"] = quantity
             }
             
-            
-            hkSample = HKWorkout.init(
+            hkSample = HKWorkout(
                 activityType: item.activityType ?? HKWorkoutActivityType(rawValue: 0)!,
                 start: item.startDate,
                 end: item.endDate,
@@ -354,16 +403,44 @@ extension HKHealthImporter {
             os_log("Didn't catch this item: %@", item.description)
         }
         
-        if let hkSample = hkSample,
-            (authorizedTypes[hkSample.sampleType] ?? false || (self.healthStore?.authorizationStatus(for: hkSample.sampleType) == HKAuthorizationStatus.sharingAuthorized)) {
+//        if let hkSample = hkSample,
+//            (authorizedTypes[hkSample.sampleType] ?? false || (self.healthStore?.authorizationStatus(for: hkSample.sampleType) == HKAuthorizationStatus.sharingAuthorized)) {
+        if let hkSample = hkSample {
+        
             authorizedTypes[hkSample.sampleType] = true
             allSamples.append(hkSample)
-            
-            print(allSamples.count)
-            
+            completion(.success(()))
+            return
         } else {
-            failureBlock()
+            completion(.failure(.nilSample))
             return
         }
+        
+//        if allSamples.count % 10000 == 0 {
+//
+//            let a = allSamples
+//            self.healthStore!.save(a, withCompletion: { (succ, error) in
+//                if let error = error {
+//                    print(error.localizedDescription)
+//                }
+//            })
+//
+//            allSamples = []
+//        }
+        
+//        if prevSample != item.type {
+//            prevSample = item.type
+//
+//            print("CHANGED SAMPLE \(prevSample)")
+//            let a = allSamples
+//
+//            saveSamples(samples: a, withSuccess: {
+//                print("SUCCESS")
+//                self.allSamples = []
+//            }, failure: {
+//                print("FAIL")
+//                self.allSamples = []
+//            })
+//        }
     }
 }

@@ -8,10 +8,9 @@
 import HealthKit
 
 class HKConstants {
-    static let loggingEnabled = false
 
     @available(iOS 11.0, *)
-    static let allSampleTypes: Set<HKSampleType>? = [
+    static let allSampleTypes: Set<HKSampleType> = [
         // Body Measurements
         HKQuantityType.quantityType(forIdentifier: HKQuantityTypeIdentifier.height)!,
         HKQuantityType.quantityType(forIdentifier: HKQuantityTypeIdentifier.bodyMass)!,

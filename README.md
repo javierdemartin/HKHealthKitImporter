@@ -34,5 +34,5 @@ The `export.xml` file naming changes depending on the device's locale and will b
 If you wish to remove the data added to the simulator use the following command on the console.
 
 ```bash
-xcrun simctl erase booted 
+xcrun simctl shutdown all; xcrun simctl erase all
 ```
