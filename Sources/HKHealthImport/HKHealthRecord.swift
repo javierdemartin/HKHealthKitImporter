@@ -28,4 +28,8 @@ class HKHealthRecord: CustomStringConvertible {
     var totalDistanceUnit: String = String()
 
     var metadata: [String: Any]?
+    
+    var device: HKDevice?
+    
+    var associatedGpxUrl: URL?
 }

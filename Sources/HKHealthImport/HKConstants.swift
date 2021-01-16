@@ -1,5 +1,5 @@
 //
-//  File.swift
+//  HKConstants.swift
 //  
 //
 //  Created by Javier de Martín Gil on 15/1/21.
@@ -7,7 +7,11 @@
 
 import HealthKit
 
+
+/// All the available HealthKit types to be imported
 class HKConstants {
+    
+    static var logMessages: Bool = true
 
     @available(iOS 11.0, *)
     static let allSampleTypes: Set<HKSampleType> = [
@@ -97,6 +101,5 @@ class HKConstants {
         HKQuantityType.quantityType(forIdentifier: HKQuantityTypeIdentifier.oxygenSaturation)!,
         HKQuantityType.quantityType(forIdentifier: HKQuantityTypeIdentifier.bloodAlcoholContent)!
     ]
-
 }
 
