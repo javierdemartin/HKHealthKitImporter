@@ -7,16 +7,25 @@ import os.log
 // TODO: HKWorkoutEventTypeResume
 // TODO: HKWorkoutEventTypeSegment
 
+enum HKValuesToImport {
+    case workout
+    case record
+    case metadata
+    case fileReference
+}
+
 public class HKHealthImporter: NSObject {
     
     /// Path for the exported XML file containing the exported data
     var xmlPath: URL?
     
+    var valuesToImport: [HKValuesToImport] = [.workout]
+    
     private var healthStore: HKHealthStore?
     
-    private var currentRecord: HKHealthRecord = HKHealthRecord()
+    var currentRecord: HKHealthRecord = HKHealthRecord()
     
-    private let dateFormatter: DateFormatter = {
+    let dateFormatter: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd HH:mm:ss Z"
         return f
@@ -24,7 +33,7 @@ public class HKHealthImporter: NSObject {
     
     private var numberFormatter: NumberFormatter?
     
-    private var allRecords: [HKHealthRecord] = []
+    var allRecords: [HKHealthRecord] = []
     private var allSamples: [HKSample] = []
     
     var metadata: [String: Any] = [:]
@@ -42,7 +51,7 @@ public class HKHealthImporter: NSObject {
         self.xmlPath = path
         
         #if !targetEnvironment(simulator)
-            fatalError("Running on a real device")
+        fatalError("Running on a real device")
         #endif
         
         self.numberFormatter = NumberFormatter()
@@ -73,6 +82,9 @@ public class HKHealthImporter: NSObject {
                         }
                     })
                 case .unnecessary:
+                    //                    DispatchQueue.global(qos: .background).async {
+                    //                        <#code#>
+                    //                    }
                     completion()
                 @unknown default:
                     break
@@ -84,12 +96,13 @@ public class HKHealthImporter: NSObject {
     public func parseData() {
         if let path = xmlPath, let parser = XMLParser(contentsOf: path) {
             
-                parser.delegate = self
-                
-                parser.parse()
+            parser.delegate = self
             
-                self.saveAll()
-                
+            /// Triggers the XMLParserDelegate methods to parse the XML feed
+            parser.parse()
+            
+            self.saveAll()
+            
             
         } else {
             os_log("File not found")
@@ -99,7 +112,7 @@ public class HKHealthImporter: NSObject {
     func saveAll() {
         saveSamples(samples: self.allSamples, withSuccess: {}, failure: {})
     }
-
+    
     func saveSamples(samples: [HKSample], withSuccess successBlock: @escaping () -> Void, failure failureBlock: @escaping () -> Void) {
         
         let size = samples.count
@@ -121,82 +134,19 @@ public class HKHealthImporter: NSObject {
         
         // TODO: There's an issue when saving a lot of samples using an array.
         // In my case I have a 2GB XML file and it's better to save the results item by item
-
+        
     }
 }
 
-// MARK: - XMLParserDelegate
 
-extension HKHealthImporter: XMLParserDelegate {
-    public func parser(_ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?, qualifiedName qName: String?, attributes attributeDict: [String : String] = [:]) {
-        
-        if elementName == "Record" {
-            recordFrom(attributeDict)
-        } else if elementName == "MetadataEntry" {
-            // A key that indicates whether the sample was entered by the user.
-            metadataFrom(attributeDict)
-            dump(currentRecord.metadata)
-        } else if elementName == "Workout" {
-            workoutFrom(attributeDict)
-        } else if elementName == "FileReference" {
-            routeFrom(attributeDict)
-        }
-    }
-    
-    public func parser(_ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?, qualifiedName qName: String?) {
-        
-        if elementName == "Record" || elementName == "Workout" {
-            
-            currentRecord.metadata = metadata
-            metadata = [:]
-            allRecords.append(currentRecord)
-            currentRecord = HKHealthRecord()
-        }
-    }
-    
-    fileprivate func recordFrom(_ attributeDict: [String: String]) {
-        
-        currentRecord.type = attributeDict["type"]!
-        currentRecord.sourceName = attributeDict["sourceName"] ??  ""
-        currentRecord.sourceVersion = attributeDict["sourceVersion"] ??  ""
-        currentRecord.value = Double(attributeDict["value"] ?? "0") ?? 0
-        currentRecord.unit = attributeDict["unit"] ?? ""
-        
-        if let date = dateFormatter.date(from: attributeDict["startDate"]!) {
-            currentRecord.startDate = date
-        }
-        
-        if let date = dateFormatter.date(from: attributeDict["endDate"]!) {
-            currentRecord.endDate = date
-        }
-        
-        if currentRecord.startDate >  currentRecord.endDate {
-            currentRecord.startDate = currentRecord.endDate
-        }
-        
-        if let date = dateFormatter.date(from: attributeDict["creationDate"]!) {
-            currentRecord.creationDate = date
-        }
-    }
-    
-    public func parser(_ parser: XMLParser, parseErrorOccurred parseError: Error) {
-        print(parseError.localizedDescription)
-    }
-    
-    public func parser(_ parser: XMLParser, validationErrorOccurred validationError: Error) {
-        print(validationError.localizedDescription)
-    }
-}
 
 // MARK: - Metadata management
 
 extension HKHealthImporter {
     
-    fileprivate func metadataFrom(_ attributeDict: [String: String]) {
+    func metadataFrom(_ attributeDict: [String: String]) {
         var key: String?
         var value: Any?
-        
-//        dump(attributeDict)
         
         for (attributeKey, attributeValue) in attributeDict {
             
@@ -225,20 +175,20 @@ extension HKHealthImporter {
                 print("---------------------")
             }
         }
-
-//        currentRecord.metadata = [String: Any]()
-//
-//        if let key = key, let value = value, key != "HKMetadataKeySyncIdentifier" {
-//            currentRecord.metadata?[key] = value
-//        }
+        
+        //        currentRecord.metadata = [String: Any]()
+        //
+        //        if let key = key, let value = value, key != "HKMetadataKeySyncIdentifier" {
+        //            currentRecord.metadata?[key] = value
+        //        }
     }
     
-    fileprivate func routeFrom(_ attributeDict: [String: String]) {
+    func routeFrom(_ attributeDict: [String: String]) {
         
         /**
          {
-            "key": "path",
-            "value": "/workout-routes/route_2021-01-08_7.13pm.gpx"
+         "key": "path",
+         "value": "/workout-routes/route_2021-01-08_7.13pm.gpx"
          }
          */
         
@@ -253,7 +203,7 @@ extension HKHealthImporter {
                 let pathFileName = URL(fileURLWithPath: attributeValue).lastPathComponent.replacingOccurrences(of: ".\(pathExtension)", with: "")
                 
                 let path = Bundle.main.url(forResource: "\(pathFileName)", withExtension: "\(pathExtension)")!
-
+                
                 currentRecord.associatedGpxUrl = path
             }
             
@@ -274,7 +224,7 @@ extension HKHealthImporter {
     /**
      Parse workouts contents from a dictionary
      */
-    fileprivate func workoutFrom(_ attributeDict: [String: String]) {
+    func workoutFrom(_ attributeDict: [String: String]) {
         
         currentRecord.type = HKObjectType.workoutType().identifier
         currentRecord.activityType = HKWorkoutActivityType.from(string: attributeDict["workoutActivityType"] ?? "")
@@ -299,7 +249,7 @@ extension HKHealthImporter {
                                         udiDeviceIdentifier: nil)
         
         // Create HKDevice
-
+        
         
         
         if let date = dateFormatter.date(from: attributeDict["startDate"]!) {
@@ -369,7 +319,7 @@ extension HKHealthImporter {
             
             // Thread 7: "HKMetadataKeySyncVersion may not be provided if HKMetadataKeySyncIdentifier is not provided in the metadata"
             if metadata!["HKMetadataKeySyncVersion"] != nil && metadata?.keys.count == 1 {
-
+                
                 completion(.failure(.metadataSync))
                 return
             }
@@ -400,11 +350,11 @@ extension HKHealthImporter {
         
         // Thread 4: "Value 0 is not compatible with type HKCategoryTypeIdentifierAudioExposureEvent"
         // Thread 9: "Value 0 is not compatible with type HKCategoryTypeIdentifierAudioExposureEvent"
-//        if item.type == HKQuantityTypeIdentifier.environmentalAudioExposure.rawValue {
-//            dump(item)
-//            failureBlock()
-//            return
-//        }
+        //        if item.type == HKQuantityTypeIdentifier.environmentalAudioExposure.rawValue {
+        //            dump(item)
+        //            failureBlock()
+        //            return
+        //        }
         
         if item.type == HKCategoryTypeIdentifier.environmentalAudioExposureEvent.rawValue {
             dump(item)
@@ -413,7 +363,7 @@ extension HKHealthImporter {
         }
         
         
-
+        
         let unit = HKUnit.init(from: item.unit!)
         let quantity = HKQuantity(unit: unit, doubleValue: item.value)
         var hkSample: HKSample?
@@ -507,7 +457,7 @@ extension HKHealthImporter {
         }
         
         if let hkSample = hkSample {
-        
+            
             authorizedTypes[hkSample.sampleType] = true
             allSamples.append(hkSample)
             completion(.success(hkSample))
