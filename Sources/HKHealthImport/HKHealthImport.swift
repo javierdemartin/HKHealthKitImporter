@@ -1,6 +1,7 @@
 import HealthKit
 import Foundation
 import os.log
+import CoreLocation
 
 // TODO:  Parse HKWorkoutEventTypePause
 // TODO: HKWorkoutEventTypeMotionPaused
@@ -12,6 +13,8 @@ enum HKValuesToImport {
     case record
     case metadata
     case fileReference
+    case workoutRoute
+    case workoutEvent
 }
 
 public class HKHealthImporter: NSObject {
@@ -19,9 +22,9 @@ public class HKHealthImporter: NSObject {
     /// Path for the exported XML file containing the exported data
     var xmlPath: URL?
     
-    var valuesToImport: [HKValuesToImport] = [.workout]
+    var valuesToImport: [HKValuesToImport] = [.workout, .fileReference, .workoutRoute, .workoutEvent]
     
-    private var healthStore: HKHealthStore?
+    var healthStore: HKHealthStore?
     
     var currentRecord: HKHealthRecord = HKHealthRecord()
     
@@ -206,19 +209,7 @@ extension HKHealthImporter {
                 
                 currentRecord.associatedGpxUrl = path
             }
-            
-            
-            
         }
-    }
-    
-    public func parser(_ parser: XMLParser, foundComment comment: String) {
-        print("comment")
-        print(comment)
-    }
-    
-    public func parser(_ parser: XMLParser, foundCDATA CDATABlock: Data) {
-        print(String(data: CDATABlock, encoding: .utf8))
     }
     
     /**
@@ -265,43 +256,6 @@ extension HKHealthImporter {
         if let date = dateFormatter.date(from: attributeDict["creationDate"]!) {
             currentRecord.creationDate = date
         }
-    }
-    
-    
-    /// Does not run on the main thread
-    /// - Parameter parser: <#parser description#>
-    public func parserDidEndDocument(_ parser: XMLParser) {
-        
-        dump(allRecords)
-        
-        for record in allRecords {
-            
-            DispatchQueue.main.async {
-                
-                
-                if let gpx = record.associatedGpxUrl {
-                    GPXXMLParser().parseThingies(url: gpx, completion: { met in
-                        
-                        dump(met)
-                    })
-                }
-                
-                self.save(item: record, completion: { result in
-                    switch result {
-                    
-                    case .success(let sample):
-                        self.healthStore!.save(sample, withCompletion: { (succ, error) in
-                            if let error = error {
-                                print(error.localizedDescription)
-                            }
-                        })
-                    case .failure(let error):
-                        fatalError(error.localizedDescription)
-                    }
-                })
-            }
-        }
-        
     }
     
     func save(item: HKHealthRecord, completion: @escaping (Result<HKSample, HKImporterError>) -> Void) {
@@ -442,29 +396,93 @@ extension HKHealthImporter {
                 item.metadata!["HKWeatherHumidity"] = quantity
             }
             
-            hkSample = HKWorkout(
-                activityType: item.activityType ?? HKWorkoutActivityType(rawValue: 0)!,
-                start: item.startDate,
-                end: item.endDate,
-                duration: HKQuantity(unit: HKUnit.init(from: item.unit!), doubleValue: item.value).doubleValue(for: HKUnit.second()),
-                totalEnergyBurned: HKQuantity(unit: HKUnit.init(from: item.totalEnergyBurnedUnit), doubleValue: item.totalEnergyBurned),
-                totalDistance: HKQuantity(unit: HKUnit.init(from: item.totalDistanceUnit), doubleValue: item.totalDistance),
-                device: item.device,
-                metadata: item.metadata
-            )
+            let workoutRouteBuilder = HKWorkoutRouteBuilder(healthStore: self.healthStore!, device: item.device)
+            
+            if let url = item.associatedGpxUrl {
+                
+                parseXmlRoute(url, completion: { data in
+                    
+                    workoutRouteBuilder.insertRouteData(data, completion: { (finished, error) in
+                        
+                        hkSample = HKWorkout(
+                            activityType: item.activityType ?? HKWorkoutActivityType(rawValue: 0)!,
+                            start: item.startDate,
+                            end: item.endDate,
+                            duration: HKQuantity(unit: HKUnit.init(from: item.unit!), doubleValue: item.value).doubleValue(for: HKUnit.second()),
+                            totalEnergyBurned: HKQuantity(unit: HKUnit.init(from: item.totalEnergyBurnedUnit), doubleValue: item.totalEnergyBurned),
+                            totalDistance: HKQuantity(unit: HKUnit.init(from: item.totalDistanceUnit), doubleValue: item.totalDistance),
+                            device: item.device,
+                            metadata: item.metadata
+                        )
+                        
+                        self.healthStore!.save(hkSample!, withCompletion: { (finished, error) in
+                            
+                            workoutRouteBuilder.finishRoute(with: hkSample as! HKWorkout, metadata: item.metadata, completion: { (route, erorr) in
+                                
+                                if erorr != nil {
+                                    print(erorr?.localizedDescription)
+                                }
+                                
+                                self.authorizedTypes[hkSample!.sampleType] = true
+                                self.allSamples.append(hkSample!)
+                                completion(.success(hkSample!))
+                                return
+                            })
+                        })
+                        
+                        
+                    })
+                })
+
+            } else {
+                
+                hkSample = HKWorkout(
+                    activityType: item.activityType ?? HKWorkoutActivityType(rawValue: 0)!,
+                    start: item.startDate,
+                    end: item.endDate,
+                    duration: HKQuantity(unit: HKUnit.init(from: item.unit!), doubleValue: item.value).doubleValue(for: HKUnit.second()),
+                    totalEnergyBurned: HKQuantity(unit: HKUnit.init(from: item.totalEnergyBurnedUnit), doubleValue: item.totalEnergyBurned),
+                    totalDistance: HKQuantity(unit: HKUnit.init(from: item.totalDistanceUnit), doubleValue: item.totalDistance),
+                    device: item.device,
+                    metadata: item.metadata
+                )
+                
+                authorizedTypes[hkSample!.sampleType] = true
+                allSamples.append(hkSample!)
+                completion(.success(hkSample!))
+                return
+            }
+            
+            
+            
+            
         } else {
             os_log("Didn't catch this item: %@", item.description)
         }
         
-        if let hkSample = hkSample {
+//        if let hkSample = hkSample {
+//
+//            authorizedTypes[hkSample.sampleType] = true
+//            allSamples.append(hkSample)
+//            completion(.success(hkSample))
+//            return
+//        } else {
+//            completion(.failure(.nilSample))
+//            return
+//        }
+    }
+    
+    func parseXmlRoute(_ xmlPath: URL, completion: @escaping ([CLLocation]) -> ()) {
+        GPXXMLParser().parseThingies(url: xmlPath, completion: { met in
+//                        dump(met)//
+            /// Move object to HKWorkoutRoute
+//                        let hkWorkoutRoute = met.points.compactMap({ HKWorkoutRoute( })
             
-            authorizedTypes[hkSample.sampleType] = true
-            allSamples.append(hkSample)
-            completion(.success(hkSample))
-            return
-        } else {
-            completion(.failure(.nilSample))
-            return
-        }
+            let locations = met.points.compactMap({ CLLocation(latitude: $0.coordinates.latitude, longitude: $0.coordinates.longitude) })
+            
+            
+            completion(locations)
+            
+        })
     }
 }

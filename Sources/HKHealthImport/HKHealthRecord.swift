@@ -32,4 +32,22 @@ class HKHealthRecord: CustomStringConvertible {
     var device: HKDevice?
     
     var associatedGpxUrl: URL?
+    
+    // MARK: Workout data
+    
+    /// https://developer.apple.com/documentation/healthkit/hkmetadatakeytimezone#
+    var timeZone: TimeZone?
+    
+    /// https://developer.apple.com/documentation/healthkit/hkworkoutevent#
+    var workoutEvent: [MyHKWorkoutEvent] = []
+}
+
+struct MyHKWorkoutEvent {
+    let type: MyHKWorkoutEventType
+    let date: Date
+}
+
+enum MyHKWorkoutEventType: String {
+    case pause = "HKWorkoutEventTypePause"
+    case resume = "HKWorkoutEventTypeResume"
 }

@@ -64,6 +64,26 @@ The `export.xml` file naming changes depending on the device's locale and will b
 </Workout>
 ```
 
+Sample of a workout data 
+
+```xml
+<Workout workoutActivityType="HKWorkoutActivityTypeCycling" duration="18.96813208262126" durationUnit="min" totalDistance="4.637590121406164" totalDistanceUnit="km" totalEnergyBurned="92.066" totalEnergyBurnedUnit="kcal" sourceName="Apple Watch de Javier" sourceVersion="4.2.2" creationDate="2018-03-07 08:43:19 +0100" startDate="2018-03-07 08:23:28 +0100" endDate="2018-03-07 08:43:18 +0100">
+  <MetadataEntry key="HKTimeZone" value="Europe/Madrid"/>
+  <MetadataEntry key="HKWeatherTemperature" value="44 degF"/>
+  <MetadataEntry key="HKWeatherHumidity" value="8200 %"/>
+  <WorkoutEvent type="HKWorkoutEventTypePause" date="2018-03-07 08:27:20 +0100"/>
+  <WorkoutEvent type="HKWorkoutEventTypeResume" date="2018-03-07 08:27:28 +0100"/>
+  <WorkoutEvent type="HKWorkoutEventTypePause" date="2018-03-07 08:38:50 +0100"/>
+  <WorkoutEvent type="HKWorkoutEventTypeResume" date="2018-03-07 08:39:12 +0100"/>
+  <WorkoutEvent type="HKWorkoutEventTypePause" date="2018-03-07 08:42:56 +0100"/>
+  <WorkoutRoute sourceName="Apple Watch de Javier" sourceVersion="11.2.6" creationDate="2018-03-07 08:44:26 +0100" startDate="2018-03-07 08:23:29 +0100" endDate="2018-03-07 08:42:55 +0100">
+   <MetadataEntry key="HKMetadataKeySyncVersion" value="2"/>
+   <MetadataEntry key="HKMetadataKeySyncIdentifier" value="F005A5AA-0C3D-4F76-8F3F-EE24A56D0688"/>
+   <FileReference path="/workout-routes/route_2018-03-07_8.42am.gpx"/>
+  </WorkoutRoute>
+ </Workout>
+```
+
 
 ### Simulator
 

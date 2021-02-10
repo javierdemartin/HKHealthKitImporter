@@ -37,7 +37,7 @@ extension GPXXMLParser: XMLParserDelegate {
         }
         
         if elementName == "trkpt" {
-            print(attributeDict)
+//            print(attributeDict)
             
             if let latitude = attributeDict["lat"],
                let longitude = attributeDict["lon"],
@@ -49,11 +49,11 @@ extension GPXXMLParser: XMLParserDelegate {
         }
         
         if elementName == "ele" {
-            print()
+//            print()
         }
         
         if elementName == "time" {
-            print()
+//            print()
         }
         
         
@@ -63,14 +63,14 @@ extension GPXXMLParser: XMLParserDelegate {
     }
     
     func parser(_ parser: XMLParser, foundCharacters string: String) {
-        print(foundCharacters)
+//        print(foundCharacters)
         foundCharacters += string
     }
     
     func parser(_ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?, qualifiedName qName: String?) {
         
         if elementName == "metadata" {
-            print()
+//            print()
         }
         
         if elementName == "trkpt" {
@@ -96,8 +96,6 @@ extension GPXXMLParser: XMLParserDelegate {
         if elementName == "name" {
             self.gpx.name = foundCharacters
         }
-        
-        print("-----------------------------")
         
         foundCharacters = "";
         
